@@ -25,7 +25,6 @@ export const RealBackend = {
     const result = await signInWithPopup(auth, provider);
     const fbUser = result.user;
 
-    // Check if user exists in Firestore, if not create
     const userRef = doc(db, "users", fbUser.uid);
     const userSnap = await getDoc(userRef);
 
@@ -45,37 +44,40 @@ export const RealBackend = {
     return userData;
   },
 
-  // Novo: Registo com Email e Senha
-  registerWithEmail: async (name: string, email: string, pass: string): Promise<User> => {
+  // REGISTO ATUALIZADO: Recebe dados completos
+  registerWithEmail: async (
+      name: string, 
+      email: string, 
+      pass: string, 
+      extraData: { phone: string, address: string, clothingSize: any }
+  ): Promise<User> => {
     const result = await createUserWithEmailAndPassword(auth, email, pass);
     const fbUser = result.user;
 
-    // Atualizar o nome no perfil de autenticação do Firebase
     await updateAuthProfile(fbUser, { displayName: name });
 
-    // Criar o documento do usuário no Firestore
-    const userData: User = {
+    const userData: Participant = {
       id: fbUser.uid,
       name: name,
       email: email,
-      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${fbUser.uid}`, // Avatar padrão baseado no ID
+      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${fbUser.uid}`,
+      phone: extraData.phone,
+      address: extraData.address,
+      clothingSize: extraData.clothingSize
     };
 
     await setDoc(doc(db, "users", fbUser.uid), userData);
     return userData;
   },
 
-  // Novo: Login com Email e Senha
   loginWithEmail: async (email: string, pass: string): Promise<void> => {
     await signInWithEmailAndPassword(auth, email, pass);
-    // O onAuthStateChange cuidará do resto
   },
 
   logout: async () => {
     await signOut(auth);
   },
 
-  // Observer for Auth State (Replaces localStorage check)
   onAuthStateChange: (callback: (user: User | null) => void) => {
     return onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser) {
@@ -84,7 +86,6 @@ export const RealBackend = {
         if (snap.exists()) {
             callback({ id: fbUser.uid, ...snap.data() } as User);
         } else {
-            // Fallback if record doesn't exist yet
             callback({ 
                 id: fbUser.uid, 
                 name: fbUser.displayName || "", 
@@ -110,8 +111,6 @@ export const RealBackend = {
 
   getUsersInGroup: async (userIds: string[]): Promise<User[]> => {
     if (userIds.length === 0) return [];
-    // Firestore 'in' query supports max 10, so we might need to batch or fetch individually if > 10
-    // For simplicity in this version, fetching individually in parallel
     const promises = userIds.map(id => getDoc(doc(db, "users", id)));
     const docs = await Promise.all(promises);
     return docs.filter(d => d.exists()).map(d => convertDoc<User>(d));
@@ -123,6 +122,7 @@ export const RealBackend = {
     
     const newGroupData: Omit<Group, 'id'> = {
       name,
+      groupImage: `https://picsum.photos/seed/${name}/200`, // Placeholder default
       customSlug: customSlug || "",
       adminId,
       isPublic,
@@ -139,7 +139,6 @@ export const RealBackend = {
     return { id: docRef.id, ...newGroupData };
   },
 
-  // Get User's groups
   getMyGroups: (userId: string, callback: (groups: Group[]) => void) => {
     const q = query(collection(db, "groups"), where("members", "array-contains", userId));
     return onSnapshot(q, (snap) => {
@@ -148,7 +147,6 @@ export const RealBackend = {
     });
   },
 
-  // Get Public Groups
   getPublicGroups: (callback: (groups: Group[]) => void) => {
     const q = query(collection(db, "groups"), where("isPublic", "==", true), limit(20));
     return onSnapshot(q, (snap) => {
@@ -162,7 +160,6 @@ export const RealBackend = {
     return snap.exists() ? convertDoc<Group>(snap) : undefined;
   },
   
-  // Listen to single group changes (Real-time)
   subscribeToGroup: (groupId: string, callback: (group: Group | null) => void) => {
     return onSnapshot(doc(db, "groups", groupId), (snap) => {
         if (snap.exists()) callback(convertDoc<Group>(snap));
@@ -209,7 +206,6 @@ export const RealBackend = {
     await updateDoc(groupRef, updates);
   },
 
-  // --- Draw Logic ---
   runDraw: async (groupId: string) => {
     const groupRef = doc(db, "groups", groupId);
     const groupSnap = await getDoc(groupRef);
@@ -217,7 +213,6 @@ export const RealBackend = {
     const group = groupSnap.data() as Group;
 
     const participants = [...group.members];
-    // Fisher-Yates shuffle
     for (let i = participants.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [participants[i], participants[j]] = [participants[j], participants[i]];
@@ -238,7 +233,6 @@ export const RealBackend = {
     await RealBackend.sendMessage(groupId, "admin", "SISTEMA", 'O sorteio foi realizado! Vê quem te calhou 🤫');
   },
 
-  // --- Chat (Subcollection) ---
   subscribeToMessages: (groupId: string, callback: (msgs: Message[]) => void) => {
     const msgsRef = collection(db, "groups", groupId, "messages");
     const q = query(msgsRef, orderBy("timestamp", "asc"));
@@ -263,10 +257,7 @@ export const RealBackend = {
     await addDoc(msgsRef, newMessage);
   },
 
-  // --- Public Queue (Simplified with Firestore Transaction or just simple add) ---
   joinQueue: async (userId: string): Promise<string | null> => {
-    // NOTE: In a real high-concurrency app, this needs Cloud Functions.
-    // For this level, we will check a 'queues' collection.
     const queueRef = doc(db, "system", "public_queue");
     const queueSnap = await getDoc(queueRef);
     
@@ -280,18 +271,14 @@ export const RealBackend = {
     }
 
     if (queue.length >= 4) {
-        // Create group
         const members = queue.splice(0, 4);
         const group = await RealBackend.createGroup(members[0], true, `Kamba Auto #${Date.now().toString().slice(-4)}`);
         
-        // Add others
         for (let i = 1; i < members.length; i++) {
             await updateDoc(doc(db, "groups", group.id), { members: arrayUnion(members[i]) });
         }
         
         await RealBackend.runDraw(group.id);
-        
-        // Update queue
         await setDoc(queueRef, { users: queue });
         return group.id;
     } else {
@@ -300,9 +287,7 @@ export const RealBackend = {
     }
   },
   
-  // Helper for testing
   addBotMember: async (groupId: string) => {
-      // Create a fake user in DB
        const botNames = ['Matondo', 'Nzinga', 'Kiluanji', 'Jandira', 'Tchizé', 'Cleyton'];
        const randomName = botNames[Math.floor(Math.random() * botNames.length)] + ` Bot`;
        const botId = `bot_${Date.now()}`;

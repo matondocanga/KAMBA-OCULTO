@@ -4,7 +4,7 @@ export interface User {
   email: string;
   phone?: string;
   address?: string;
-  avatar: string;
+  avatar: string; // URL ou Base64
 }
 
 export interface Participant extends User {
@@ -21,17 +21,18 @@ export interface Participant extends User {
 export interface Group {
   id: string;
   name: string;
-  customSlug?: string; // Custom link part
+  groupImage?: string; // Nova Imagem do Grupo
+  customSlug?: string;
   description?: string;
   adminId: string;
   isPublic: boolean;
-  requiresApproval: boolean; // New: Require admin approval
+  requiresApproval: boolean;
   maxMembers: number;
   createdAt: number;
   status: 'recruiting' | 'drawn' | 'completed';
-  members: string[]; // User IDs
-  pendingMembers: string[]; // New: Users waiting for approval
-  drawResult?: Record<string, string>; // Santa ID -> Receiver ID
+  members: string[]; 
+  pendingMembers: string[];
+  drawResult?: Record<string, string>; 
   budget?: string;
 }
 

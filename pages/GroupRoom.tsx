@@ -19,6 +19,7 @@ const GroupRoom: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [myMatch, setMyMatch] = useState<User | null>(null);
   const [showRevealModal, setShowRevealModal] = useState(false);
+  const [isJoining, setIsJoining] = useState(false); // New Loading State
   
   // Settings Edit State
   const [editName, setEditName] = useState('');
@@ -31,7 +32,6 @@ const GroupRoom: React.FC = () => {
   useEffect(() => {
       const unsub = RealBackend.onAuthStateChange(user => {
           if (!user) {
-              // Save where the user wanted to go
               sessionStorage.setItem('redirectPath', location.pathname);
               navigate('/');
           }
@@ -74,9 +74,6 @@ const GroupRoom: React.FC = () => {
                     setMyMatch(match || null);
                 }
             }
-        } else {
-            // Se não for membro, ainda pode ver informações básicas (graças à nova regra)
-            // mas não buscamos mensagens.
         }
     });
 
@@ -144,7 +141,7 @@ const GroupRoom: React.FC = () => {
   const copyGroupCode = () => {
       if(group) {
         navigator.clipboard.writeText(group.id);
-        alert("Código do grupo copiado! Podes usar na página inicial.");
+        alert("Código do grupo copiado!");
       }
   };
 
@@ -196,7 +193,7 @@ const GroupRoom: React.FC = () => {
               window.open(`mailto:${inviteEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
           }
       } else {
-          alert("Erro ao adicionar.");
+          alert("Erro ao processar. Verifica se o e-mail está correto.");
       }
   };
 
@@ -221,15 +218,29 @@ const GroupRoom: React.FC = () => {
                    ) : (
                        <button 
                          onClick={async () => {
-                             const res = await RealBackend.joinGroup(group.id, currentUser.id);
-                             if (res.success) {
-                                 // Force refresh or let logic handle it (Snapshot will trigger re-render if updated)
-                                 alert(res.message);
+                             setIsJoining(true);
+                             try {
+                                 const res = await RealBackend.joinGroup(group.id, currentUser.id);
+                                 if (res.success) {
+                                     alert(res.message);
+                                     // FALLBACK: If state doesn't update automatically, force reload to show new view
+                                     if(!group.members.includes(currentUser.id)) {
+                                         setTimeout(() => window.location.reload(), 500);
+                                     }
+                                 } else {
+                                     alert(res.message);
+                                 }
+                             } catch(e) {
+                                 console.error(e);
+                                 alert("Ocorreu um erro ao entrar. Tenta novamente.");
+                             } finally {
+                                 setIsJoining(false);
                              }
                          }}
-                         className="w-full bg-[#C62828] text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:bg-red-700 transition"
+                         disabled={isJoining}
+                         className={`w-full text-white py-4 rounded-xl font-bold text-lg shadow-lg transition ${isJoining ? 'bg-gray-400 cursor-not-allowed' : 'bg-[#C62828] hover:bg-red-700'}`}
                        >
-                           Entrar no Grupo
+                           {isJoining ? 'A entrar...' : 'Entrar no Grupo'}
                        </button>
                    )}
                    <button onClick={() => navigate('/dashboard')} className="mt-4 text-sm text-gray-400 underline">Voltar ao Início</button>
@@ -359,13 +370,13 @@ const GroupRoom: React.FC = () => {
                  
                  {/* 1. Código do Grupo */}
                  <div className="flex items-center justify-between bg-gray-50 p-3 rounded-lg mb-3 border border-gray-200">
-                     <div>
+                     <div className="overflow-hidden">
                          <p className="text-[10px] text-gray-500 font-bold uppercase">Código do Grupo</p>
-                         <p className="font-mono font-bold text-sm tracking-wider text-gray-800 break-all">{group.id}</p>
+                         <p className="font-mono font-bold text-sm tracking-wider text-gray-800 truncate">{group.id}</p>
                      </div>
                      <button 
                         onClick={copyGroupCode}
-                        className="text-[#D4AF37] font-bold text-xs bg-white border border-[#D4AF37] px-3 py-1 rounded hover:bg-[#D4AF37] hover:text-white transition"
+                        className="text-[#D4AF37] font-bold text-xs bg-white border border-[#D4AF37] px-3 py-1 rounded hover:bg-[#D4AF37] hover:text-white transition whitespace-nowrap ml-2"
                      >
                         Copiar
                      </button>
@@ -396,6 +407,7 @@ const GroupRoom: React.FC = () => {
                                  +
                              </button>
                          </form>
+                         <p className="text-[9px] text-gray-400 mt-1">Se ele já tiver conta, entra direto. Senão, podes enviar convite.</p>
                      </div>
                  )}
              </div>

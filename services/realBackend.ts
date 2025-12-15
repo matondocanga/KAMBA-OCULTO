@@ -22,11 +22,11 @@ export const RealBackend = {
   // --- Auth ---
   loginWithGoogle: async (): Promise<User> => {
     const provider = new GoogleAuthProvider();
-    // Forçar seleção de conta para evitar loops de auto-login
     provider.setCustomParameters({ prompt: 'select_account' });
     
     const result = await signInWithPopup(auth, provider);
     const fbUser = result.user;
+    const email = fbUser.email ? fbUser.email.toLowerCase().trim() : "";
 
     const userRef = doc(db, "users", fbUser.uid);
     const userSnap = await getDoc(userRef);
@@ -35,11 +35,14 @@ export const RealBackend = {
 
     if (userSnap.exists()) {
       userData = userSnap.data() as User;
+      if (userData.email !== email && email) {
+          await updateDoc(userRef, { email });
+      }
     } else {
       userData = {
         id: fbUser.uid,
         name: fbUser.displayName || "Kamba Novo",
-        email: fbUser.email || "",
+        email: email,
         avatar: fbUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${fbUser.uid}`,
       };
       await setDoc(userRef, userData);
@@ -47,13 +50,13 @@ export const RealBackend = {
     return userData;
   },
 
-  // REGISTO ATUALIZADO: Recebe dados completos
   registerWithEmail: async (
       name: string, 
-      email: string, 
+      emailInput: string, 
       pass: string, 
       extraData: { phone: string, address: string, clothingSize: any }
   ): Promise<User> => {
+    const email = emailInput.toLowerCase().trim();
     const result = await createUserWithEmailAndPassword(auth, email, pass);
     const fbUser = result.user;
 
@@ -74,7 +77,7 @@ export const RealBackend = {
   },
 
   loginWithEmail: async (email: string, pass: string): Promise<void> => {
-    await signInWithEmailAndPassword(auth, email, pass);
+    await signInWithEmailAndPassword(auth, email.toLowerCase().trim(), pass);
   },
 
   logout: async () => {
@@ -92,7 +95,7 @@ export const RealBackend = {
             callback({ 
                 id: fbUser.uid, 
                 name: fbUser.displayName || "", 
-                email: fbUser.email || "", 
+                email: fbUser.email?.toLowerCase() || "", 
                 avatar: fbUser.photoURL || "" 
             });
         }
@@ -125,7 +128,7 @@ export const RealBackend = {
     
     const newGroupData: Omit<Group, 'id'> = {
       name,
-      groupImage: `https://picsum.photos/seed/${name}/200`, // Placeholder default
+      groupImage: `https://picsum.photos/seed/${name}/200`,
       customSlug: customSlug || "",
       adminId,
       isPublic,
@@ -170,36 +173,48 @@ export const RealBackend = {
     });
   },
 
-  joinGroup: async (groupId: string, userId: string): Promise<{success: boolean, message: string}> => {
-    const groupRef = doc(db, "groups", groupId);
-    const groupSnap = await getDoc(groupRef);
-    
-    if (!groupSnap.exists()) return { success: false, message: 'Grupo não encontrado.' };
-    const group = groupSnap.data() as Group;
+  joinGroup: async (groupIdInput: string, userId: string): Promise<{success: boolean, message: string}> => {
+    try {
+        const groupId = groupIdInput.trim();
+        if (!groupId) return { success: false, message: 'Código inválido.' };
 
-    if (group.members.includes(userId)) return { success: true, message: 'Já és membro.' };
-    if (group.pendingMembers.includes(userId)) return { success: true, message: 'Aguardando aprovação.' };
+        const groupRef = doc(db, "groups", groupId);
+        const groupSnap = await getDoc(groupRef);
+        
+        if (!groupSnap.exists()) return { success: false, message: 'Grupo não encontrado com este código.' };
+        const group = groupSnap.data() as Group;
 
-    if (group.requiresApproval) {
-      await updateDoc(groupRef, { pendingMembers: arrayUnion(userId) });
-      return { success: true, message: 'Solicitação enviada! Aguarda o Admin aceitar.' };
-    } else {
-      await updateDoc(groupRef, { members: arrayUnion(userId) });
-      await RealBackend.sendMessage(groupId, "system", "admin", `Novo kamba entrou no grupo!`);
-      return { success: true, message: 'Entraste no grupo!' };
+        if (group.members.includes(userId)) return { success: true, message: 'Já és membro.' };
+        if (group.pendingMembers.includes(userId)) return { success: true, message: 'Aguardando aprovação.' };
+
+        if (group.requiresApproval) {
+            await updateDoc(groupRef, { pendingMembers: arrayUnion(userId) });
+            return { success: true, message: 'Solicitação enviada! Aguarda o Admin aceitar.' };
+        } else {
+            await updateDoc(groupRef, { members: arrayUnion(userId) });
+            // Tenta enviar mensagem, mas não falha o join se a mensagem falhar
+            try {
+                await RealBackend.sendMessage(groupId, "system", "admin", `Novo kamba entrou no grupo!`);
+            } catch (err) {
+                console.warn("Não foi possível enviar mensagem de boas-vindas", err);
+            }
+            return { success: true, message: 'Entraste no grupo!' };
+        }
+    } catch (error: any) {
+        console.error("Erro ao entrar no grupo:", error);
+        return { success: false, message: 'Erro ao entrar. Tenta novamente.' };
     }
   },
 
-  // NOVA FUNÇÃO: Adicionar por Email (Apenas Admin)
-  addMemberByEmail: async (groupId: string, email: string): Promise<{status: 'added' | 'invited_email' | 'error', userName?: string}> => {
+  addMemberByEmail: async (groupId: string, emailInput: string): Promise<{status: 'added' | 'invited_email' | 'error', userName?: string}> => {
       try {
+        const email = emailInput.toLowerCase().trim();
         // 1. Procurar user pelo email
         const usersRef = collection(db, "users");
         const q = query(usersRef, where("email", "==", email));
         const snapshot = await getDocs(q);
 
         if (!snapshot.empty) {
-            // User existe -> Adicionar direto (bypass approval)
             const userDoc = snapshot.docs[0];
             const userId = userDoc.id;
             const userName = userDoc.data().name;
@@ -207,17 +222,19 @@ export const RealBackend = {
             const groupRef = doc(db, "groups", groupId);
             await updateDoc(groupRef, {
                 members: arrayUnion(userId),
-                pendingMembers: arrayRemove(userId) // Remove se já estava pendente
+                pendingMembers: arrayRemove(userId)
             });
             
-            await RealBackend.sendMessage(groupId, "system", "admin", `${userName} foi adicionado pelo Admin!`);
+            try {
+                await RealBackend.sendMessage(groupId, "system", "admin", `${userName} foi adicionado pelo Admin!`);
+            } catch (err) { console.warn("Erro ao enviar msg sistema", err); }
+
             return { status: 'added', userName };
         } else {
-            // User não existe -> Retorna status para abrir cliente de email
             return { status: 'invited_email' };
         }
       } catch (e) {
-          console.error(e);
+          console.error("Erro addMemberByEmail:", e);
           return { status: 'error' };
       }
   },

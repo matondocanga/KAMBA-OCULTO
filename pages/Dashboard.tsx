@@ -66,12 +66,15 @@ const Dashboard: React.FC = () => {
     e.preventDefault();
     if (!currentUser || !joinCode) return;
     
+    // Clean code input (remove spaces)
+    const code = joinCode.trim();
+
     try {
-        const res = await RealBackend.joinGroup(joinCode, currentUser.id);
+        const res = await RealBackend.joinGroup(code, currentUser.id);
         alert(res.message);
         if (res.success) {
             setShowJoinModal(false);
-            navigate(`/group/${joinCode}`);
+            navigate(`/group/${code}`);
         }
     } catch (e) {
         alert("Erro ou código inválido.");
@@ -219,13 +222,13 @@ const Dashboard: React.FC = () => {
             <form onSubmit={handleJoinByCode} className="space-y-4">
               <p className="text-sm text-gray-500">Pede o ID do grupo ao administrador.</p>
               <div>
-                <label className="block text-xs font-bold text-gray-600 uppercase mb-1">ID do Grupo</label>
+                <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Código do Grupo (ID)</label>
                 <input 
                   type="text" 
-                  className="w-full bg-[#FFF8E1] border border-gray-200 rounded-lg p-3 text-sm focus:border-[#2E7D32] outline-none font-mono"
-                  placeholder="Ex:..."
+                  className="w-full bg-[#FFF8E1] border border-gray-200 rounded-lg p-3 text-sm focus:border-[#2E7D32] outline-none font-mono text-center tracking-widest"
+                  placeholder="Cola o código aqui"
                   value={joinCode}
-                  onChange={e => setJoinCode(e.target.value)}
+                  onChange={e => setJoinCode(e.target.value.trim())} // Auto trim
                 />
               </div>
               <button type="submit" className="w-full bg-[#2E7D32] text-white font-bold py-3 rounded-lg shadow mt-2">

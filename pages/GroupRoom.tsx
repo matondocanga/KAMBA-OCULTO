@@ -512,7 +512,7 @@ const TurnBasedCardGame = ({ members, title, data, bgColor, titleColor, onFinish
                     <p className={`text-xl font-bold ${titleColor}`}>{currentCard}</p>
                 </div>
                 
-                {/* Input Field for Answer */}
+                {/* Input Field for Answer - Local interaction only */}
                 <div className="my-4">
                     <textarea 
                         value={playerAnswer}

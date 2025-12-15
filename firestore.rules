@@ -2,7 +2,6 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- FUNÇÕES DE AJUDA ---
     function isSignedIn() {
       return request.auth != null;
     }
@@ -10,40 +9,38 @@ service cloud.firestore {
       return request.auth.uid == userId;
     }
     
-    // --- REGRAS DE USUÁRIOS ---
+    // USUÁRIOS
     match /users/{userId} {
-      allow read: if isSignedIn();
+      allow read: if isSignedIn(); // Necessário para buscar por email
       allow create, update: if isSignedIn() && isOwner(userId);
       allow delete: if false;
     }
 
-    // --- REGRAS DE GRUPOS ---
+    // GRUPOS
     match /groups/{groupId} {
       allow create: if isSignedIn();
       
-      // Ler: Se for público, membro ou pendente
-      allow read: if isSignedIn() && (
-        resource.data.isPublic == true || 
-        request.auth.uid in resource.data.members || 
-        request.auth.uid in resource.data.pendingMembers
-      );
+      // LEITURA: Qualquer utilizador logado pode ver os DADOS do grupo (Nome, Foto, Membros)
+      // Isso é essencial para que o Link de Convite mostre onde a pessoa está a entrar.
+      // A privacidade real está nas MENSAGENS (regra abaixo).
+      allow read: if isSignedIn();
       
-      // Atualizar:
+      // ATUALIZAÇÃO:
       allow update: if isSignedIn() && (
-        // 1. O ADMIN (Dono) pode alterar tudo (fazer sorteio, mudar nome, etc)
+        // 1. O ADMIN (Dono) pode alterar tudo
         resource.data.adminId == request.auth.uid ||
         
-        // 2. MEMBROS COMUNS: Só podem entrar/sair (não podem mexer no sorteio/status/nome)
+        // 2. MEMBROS: Só podem entrar/sair (alterar array members/pending)
         (
-           // Permite update se NÃO estiver alterando campos proibidos
            !request.resource.data.diff(resource.data).affectedKeys()
             .hasAny(['status', 'drawResult', 'adminId', 'name', 'groupImage', 'budget'])
         )
       );
     }
 
-    // --- REGRAS DE MENSAGENS ---
+    // MENSAGENS (CHAT) - AQUI ESTÁ A SEGURANÇA MÁXIMA
     match /groups/{groupId}/messages/{messageId} {
+      // Só lê se for membro REAL do grupo
       allow read: if isSignedIn() && exists(/databases/$(database)/documents/groups/$(groupId)) && 
                   (get(/databases/$(database)/documents/groups/$(groupId)).data.isPublic == true || 
                    request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members);
@@ -51,7 +48,6 @@ service cloud.firestore {
       allow create: if isSignedIn();
     }
     
-    // --- FILA PÚBLICA ---
     match /system/public_queue {
        allow read, write: if isSignedIn();
     }

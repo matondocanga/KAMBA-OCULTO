@@ -22,6 +22,9 @@ export const RealBackend = {
   // --- Auth ---
   loginWithGoogle: async (): Promise<User> => {
     const provider = new GoogleAuthProvider();
+    // Forçar seleção de conta para evitar loops de auto-login
+    provider.setCustomParameters({ prompt: 'select_account' });
+    
     const result = await signInWithPopup(auth, provider);
     const fbUser = result.user;
 
@@ -185,6 +188,38 @@ export const RealBackend = {
       await RealBackend.sendMessage(groupId, "system", "admin", `Novo kamba entrou no grupo!`);
       return { success: true, message: 'Entraste no grupo!' };
     }
+  },
+
+  // NOVA FUNÇÃO: Adicionar por Email (Apenas Admin)
+  addMemberByEmail: async (groupId: string, email: string): Promise<{status: 'added' | 'invited_email' | 'error', userName?: string}> => {
+      try {
+        // 1. Procurar user pelo email
+        const usersRef = collection(db, "users");
+        const q = query(usersRef, where("email", "==", email));
+        const snapshot = await getDocs(q);
+
+        if (!snapshot.empty) {
+            // User existe -> Adicionar direto (bypass approval)
+            const userDoc = snapshot.docs[0];
+            const userId = userDoc.id;
+            const userName = userDoc.data().name;
+
+            const groupRef = doc(db, "groups", groupId);
+            await updateDoc(groupRef, {
+                members: arrayUnion(userId),
+                pendingMembers: arrayRemove(userId) // Remove se já estava pendente
+            });
+            
+            await RealBackend.sendMessage(groupId, "system", "admin", `${userName} foi adicionado pelo Admin!`);
+            return { status: 'added', userName };
+        } else {
+            // User não existe -> Retorna status para abrir cliente de email
+            return { status: 'invited_email' };
+        }
+      } catch (e) {
+          console.error(e);
+          return { status: 'error' };
+      }
   },
 
   approveMember: async (groupId: string, userId: string) => {

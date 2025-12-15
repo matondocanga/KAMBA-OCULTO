@@ -23,6 +23,9 @@ const GroupRoom: React.FC = () => {
   // Settings Edit State
   const [editName, setEditName] = useState('');
   const [editImage, setEditImage] = useState('');
+  
+  // Invite State
+  const [inviteEmail, setInviteEmail] = useState('');
 
   // 1. Auth Check & Redirect Logic
   useEffect(() => {
@@ -52,22 +55,28 @@ const GroupRoom: React.FC = () => {
         if(g.name !== editName && !editName) setEditName(g.name);
         if(g.groupImage && !editImage) setEditImage(g.groupImage);
 
-        const mems = await RealBackend.getUsersInGroup(g.members);
-        setMembers(mems);
-        
-        if (g.pendingMembers.length > 0) {
-            const pends = await RealBackend.getUsersInGroup(g.pendingMembers);
-            setPendingMembers(pends);
-        } else {
-            setPendingMembers([]);
-        }
-
-        if (g.status === 'drawn' && g.drawResult) {
-            const matchId = g.drawResult[currentUser.id];
-            if (matchId) {
-                const match = await RealBackend.getUserById(matchId);
-                setMyMatch(match || null);
+        // Se for membro, buscar detalhes
+        if (g.members.includes(currentUser.id)) {
+            const mems = await RealBackend.getUsersInGroup(g.members);
+            setMembers(mems);
+            
+            if (g.pendingMembers.length > 0) {
+                const pends = await RealBackend.getUsersInGroup(g.pendingMembers);
+                setPendingMembers(pends);
+            } else {
+                setPendingMembers([]);
             }
+
+            if (g.status === 'drawn' && g.drawResult) {
+                const matchId = g.drawResult[currentUser.id];
+                if (matchId) {
+                    const match = await RealBackend.getUserById(matchId);
+                    setMyMatch(match || null);
+                }
+            }
+        } else {
+            // Se não for membro, ainda pode ver informações básicas (graças à nova regra)
+            // mas não buscamos mensagens.
         }
     });
 
@@ -134,13 +143,10 @@ const GroupRoom: React.FC = () => {
 
   const handleDraw = async () => {
     if (!group || !id || !currentUser) return;
-    
-    // Verificação de segurança no Frontend
     if (group.adminId !== currentUser.id) {
         alert("Apenas o Administrador do grupo pode realizar o sorteio!");
         return;
     }
-
     if (group.members.length < 3) {
       alert("Precisas de pelo menos 3 kambas para sortear!");
       return;
@@ -166,9 +172,66 @@ const GroupRoom: React.FC = () => {
       const text = `📢 Começou um jogo de ${gameName}!`;
       RealBackend.sendMessage(id, 'admin', 'SISTEMA', text);
   };
+  
+  const handleInviteByEmail = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if(!id || !inviteEmail) return;
+      
+      const res = await RealBackend.addMemberByEmail(id, inviteEmail);
+      if (res.status === 'added') {
+          alert(`Sucesso! ${res.userName} foi adicionado ao grupo.`);
+          setInviteEmail('');
+      } else if (res.status === 'invited_email') {
+          const confirm = window.confirm("Este e-mail ainda não tem conta no Kamba Oculto. Queres enviar um convite por e-mail?");
+          if (confirm) {
+              const subject = `Convite para ${group?.name} - Kamba Oculto`;
+              const body = `Olá!\n\nEstou a convidar-te para o nosso Amigo Oculto "${group?.name}" no app Kamba Oculto.\n\nEntra aqui: ${window.location.href}\n\nCria a tua conta com este e-mail (${inviteEmail}) para entrares automaticamente!`;
+              window.open(`mailto:${inviteEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
+          }
+      } else {
+          alert("Erro ao adicionar.");
+      }
+  };
 
   if (!group || !currentUser) return <div className="p-8 text-center">Carregando grupo...</div>;
 
+  // --- VIEW FOR NON-MEMBERS (Join Screen) ---
+  const isMember = group.members.includes(currentUser.id);
+  const isPending = group.pendingMembers.includes(currentUser.id);
+
+  if (!isMember) {
+      return (
+          <div className="flex flex-col items-center justify-center h-[80vh] p-6 text-center">
+               <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm border-t-4 border-[#C62828]">
+                   <img src={group.groupImage || `https://via.placeholder.com/150?text=${group.name[0]}`} className="w-32 h-32 rounded-full mx-auto mb-6 object-cover border-4 border-[#D4AF37]" />
+                   <h1 className="text-2xl font-black text-gray-800 mb-2">{group.name}</h1>
+                   <p className="text-gray-500 mb-6">{group.members.length} membros já estão aqui!</p>
+                   
+                   {isPending ? (
+                       <div className="bg-yellow-50 text-yellow-800 p-4 rounded-xl font-bold border border-yellow-200">
+                           ⏳ Aguardando aprovação do Admin...
+                       </div>
+                   ) : (
+                       <button 
+                         onClick={async () => {
+                             const res = await RealBackend.joinGroup(group.id, currentUser.id);
+                             if (res.success) {
+                                 // Force refresh or let logic handle it (Snapshot will trigger re-render if updated)
+                                 alert(res.message);
+                             }
+                         }}
+                         className="w-full bg-[#C62828] text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:bg-red-700 transition"
+                       >
+                           Entrar no Grupo
+                       </button>
+                   )}
+                   <button onClick={() => navigate('/dashboard')} className="mt-4 text-sm text-gray-400 underline">Voltar ao Início</button>
+               </div>
+          </div>
+      );
+  }
+
+  // --- VIEW FOR MEMBERS ---
   const isAdmin = group.adminId === currentUser.id;
 
   return (
@@ -281,6 +344,26 @@ const GroupRoom: React.FC = () => {
         {activeTab === 'members' && (
            <div className="p-4 overflow-y-auto h-full">
              
+             {isAdmin && (
+                 <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-6">
+                     <h3 className="font-bold text-[#C62828] mb-2 text-sm uppercase">Adicionar Membro</h3>
+                     <form onSubmit={handleInviteByEmail} className="flex gap-2">
+                         <input 
+                             type="email" 
+                             placeholder="Email do Kamba" 
+                             value={inviteEmail}
+                             onChange={e => setInviteEmail(e.target.value)}
+                             className="flex-1 bg-white border border-gray-300 rounded-lg p-2 text-sm"
+                             required
+                         />
+                         <button type="submit" className="bg-[#C62828] text-white px-4 py-2 rounded-lg font-bold text-sm">
+                             +
+                         </button>
+                     </form>
+                     <p className="text-[10px] text-gray-400 mt-1">Se ele já tiver conta, entra direto. Senão, enviamos convite.</p>
+                 </div>
+             )}
+
              {isAdmin && pendingMembers.length > 0 && (
                 <div className="mb-6 border-b pb-4">
                     <h3 className="font-bold text-[#D4AF37] mb-2">Solicitações Pendentes ⏳</h3>
@@ -310,19 +393,10 @@ const GroupRoom: React.FC = () => {
              <div className="flex justify-between items-center mb-4">
                 <h3 className="font-bold text-gray-700">Participantes ({members.length})</h3>
                 <button onClick={copyInviteLink} className="text-xs text-[#C62828] font-bold border border-[#C62828] rounded px-2 py-1 hover:bg-[#C62828] hover:text-white transition">
-                    + Convidar
+                    + Link
                 </button>
              </div>
              
-             {isAdmin && (
-                <button 
-                    onClick={() => RealBackend.addBotMember(group.id)}
-                    className="w-full bg-gray-100 text-gray-600 text-sm font-bold py-2 rounded-lg mb-4 border border-dashed border-gray-300 hover:bg-gray-200"
-                >
-                    🤖 Adicionar Bot (Teste)
-                </button>
-             )}
-
              <div className="space-y-3">
                {members.map(m => (
                  <div key={m.id} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg">

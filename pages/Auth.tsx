@@ -48,9 +48,17 @@ const Auth: React.FC = () => {
     try {
       await RealBackend.loginWithGoogle();
       handlePostAuth();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError("Erro ao entrar com Google.");
+      if (err.code === 'auth/popup-closed-by-user') {
+          setError("Fechaste a janela do Google antes de terminar.");
+      } else if (err.code === 'auth/cancelled-popup-request') {
+          setError("Apenas um pedido de login por vez.");
+      } else if (err.code === 'auth/unauthorized-domain') {
+          setError("Este domínio não está autorizado no Firebase. Adiciona-o na consola.");
+      } else {
+          setError(`Erro no Google Auth: ${err.message}`);
+      }
     } finally {
       setIsLoading(false);
     }

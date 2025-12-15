@@ -122,7 +122,7 @@ const GroupRoom: React.FC = () => {
         });
         alert("Grupo atualizado!");
       } catch(e) {
-        alert("Erro ao atualizar");
+        alert("Erro ao atualizar. Verifica se és o administrador.");
       }
   };
 
@@ -133,7 +133,14 @@ const GroupRoom: React.FC = () => {
   };
 
   const handleDraw = async () => {
-    if (!group || !id) return;
+    if (!group || !id || !currentUser) return;
+    
+    // Verificação de segurança no Frontend
+    if (group.adminId !== currentUser.id) {
+        alert("Apenas o Administrador do grupo pode realizar o sorteio!");
+        return;
+    }
+
     if (group.members.length < 3) {
       alert("Precisas de pelo menos 3 kambas para sortear!");
       return;
@@ -141,7 +148,8 @@ const GroupRoom: React.FC = () => {
     try {
       await RealBackend.runDraw(id);
     } catch (e) {
-      alert("Erro ao sortear");
+      console.error(e);
+      alert("Erro ao sortear. Verifica se tens permissão.");
     }
   };
 
@@ -182,12 +190,12 @@ const GroupRoom: React.FC = () => {
         </div>
         <div className="flex gap-2 z-10">
            {isAdmin && group.status === 'recruiting' && (
-             <button onClick={handleDraw} className="bg-[#D4AF37] text-white px-3 py-1 rounded-lg text-xs font-bold shadow animate-pulse">
+             <button onClick={handleDraw} className="bg-[#D4AF37] text-white px-3 py-1 rounded-lg text-xs font-bold shadow animate-pulse hover:bg-yellow-600 transition">
                🎲 Sortear
              </button>
            )}
            {group.status === 'drawn' && (
-             <button onClick={handleRevealClick} className="bg-[#2E7D32] text-white px-3 py-1 rounded-lg text-xs font-bold shadow">
+             <button onClick={handleRevealClick} className="bg-[#2E7D32] text-white px-3 py-1 rounded-lg text-xs font-bold shadow hover:bg-green-700 transition">
                🕵️ Ver Par
              </button>
            )}

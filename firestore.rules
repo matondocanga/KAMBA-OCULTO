@@ -2,47 +2,56 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Funções auxiliares
+    // --- FUNÇÕES DE AJUDA ---
     function isSignedIn() {
       return request.auth != null;
     }
     function isOwner(userId) {
       return request.auth.uid == userId;
     }
-    function isMember(resourceData) {
-      return request.auth.uid in resourceData.members;
-    }
-    function isAdmin(resourceData) {
-      return request.auth.uid == resourceData.adminId;
-    }
-
-    // Regras de Usuários
+    
+    // --- REGRAS DE USUÁRIOS ---
     match /users/{userId} {
-      allow read: if isSignedIn(); // Qualquer um logado pode ver perfis (para adicionar aos grupos)
-      allow create: if isSignedIn() && isOwner(userId);
-      allow update: if isSignedIn() && isOwner(userId); // Apenas o dono edita
-      allow delete: if false; // Ninguém deleta contas via cliente
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isOwner(userId);
+      allow delete: if false;
     }
 
-    // Regras de Grupos
+    // --- REGRAS DE GRUPOS ---
     match /groups/{groupId} {
       allow create: if isSignedIn();
-      // Ler: Se for público ou se for membro
-      allow read: if isSignedIn() && (resource.data.isPublic == true || isMember(resource.data) || request.auth.uid in resource.data.pendingMembers);
-      // Atualizar: Apenas membros podem atualizar arrays (entrar/sair)
-      // Configurações críticas (nome, status) deveriam ser apenas Admin, mas para simplificar:
-      allow update: if isSignedIn() && (isMember(resource.data) || resource.data.isPublic == true); 
+      
+      // Ler: Se for público, membro ou pendente
+      allow read: if isSignedIn() && (
+        resource.data.isPublic == true || 
+        request.auth.uid in resource.data.members || 
+        request.auth.uid in resource.data.pendingMembers
+      );
+      
+      // Atualizar:
+      allow update: if isSignedIn() && (
+        // 1. O ADMIN (Dono) pode alterar tudo (fazer sorteio, mudar nome, etc)
+        resource.data.adminId == request.auth.uid ||
+        
+        // 2. MEMBROS COMUNS: Só podem entrar/sair (não podem mexer no sorteio/status/nome)
+        (
+           // Permite update se NÃO estiver alterando campos proibidos
+           !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['status', 'drawResult', 'adminId', 'name', 'groupImage', 'budget'])
+        )
+      );
     }
 
-    // Regras de Mensagens (Subcoleção)
+    // --- REGRAS DE MENSAGENS ---
     match /groups/{groupId}/messages/{messageId} {
       allow read: if isSignedIn() && exists(/databases/$(database)/documents/groups/$(groupId)) && 
                   (get(/databases/$(database)/documents/groups/$(groupId)).data.isPublic == true || 
                    request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members);
+      
       allow create: if isSignedIn();
     }
     
-    // Fila Pública
+    // --- FILA PÚBLICA ---
     match /system/public_queue {
        allow read, write: if isSignedIn();
     }

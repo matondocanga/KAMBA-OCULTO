@@ -19,7 +19,7 @@ const GroupRoom: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [myMatch, setMyMatch] = useState<User | null>(null);
   const [showRevealModal, setShowRevealModal] = useState(false);
-  const [isJoining, setIsJoining] = useState(false); // New Loading State
+  const [isJoining, setIsJoining] = useState(false);
   
   // Settings Edit State
   const [editName, setEditName] = useState('');
@@ -148,7 +148,7 @@ const GroupRoom: React.FC = () => {
   const handleDraw = async () => {
     if (!group || !id || !currentUser) return;
     if (group.adminId !== currentUser.id) {
-        alert("Apenas o Administrador do grupo pode realizar o sorteio!");
+        alert("Apenas o Administrador (Admin) do grupo pode clicar neste botão para realizar o sorteio!");
         return;
     }
     if (group.members.length < 3) {
@@ -223,7 +223,7 @@ const GroupRoom: React.FC = () => {
                                  const res = await RealBackend.joinGroup(group.id, currentUser.id);
                                  if (res.success) {
                                      alert(res.message);
-                                     // FALLBACK: If state doesn't update automatically, force reload to show new view
+                                     // Força reload caso o estado não atualize sozinho (correção de segurança)
                                      if(!group.members.includes(currentUser.id)) {
                                          setTimeout(() => window.location.reload(), 500);
                                      }
@@ -232,7 +232,7 @@ const GroupRoom: React.FC = () => {
                                  }
                              } catch(e) {
                                  console.error(e);
-                                 alert("Ocorreu um erro ao entrar. Tenta novamente.");
+                                 alert("Erro ao tentar entrar. Tenta novamente ou pede ao admin.");
                              } finally {
                                  setIsJoining(false);
                              }
@@ -270,8 +270,15 @@ const GroupRoom: React.FC = () => {
            </div>
         </div>
         <div className="flex gap-2 z-10">
-           {isAdmin && group.status === 'recruiting' && (
-             <button onClick={handleDraw} className="bg-[#D4AF37] text-white px-3 py-1 rounded-lg text-xs font-bold shadow animate-pulse hover:bg-yellow-600 transition">
+           {group.status === 'recruiting' && (
+             <button 
+                onClick={handleDraw} 
+                className={`px-3 py-1 rounded-lg text-xs font-bold shadow transition ${
+                    isAdmin 
+                    ? 'bg-[#D4AF37] text-white animate-pulse hover:bg-yellow-600' 
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                }`}
+             >
                🎲 Sortear
              </button>
            )}

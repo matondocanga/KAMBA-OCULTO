@@ -141,6 +141,13 @@ const GroupRoom: React.FC = () => {
       alert("Link copiado! Envia para o WhatsApp dos teus kambas.");
   };
 
+  const copyGroupCode = () => {
+      if(group) {
+        navigator.clipboard.writeText(group.id);
+        alert("Código do grupo copiado! Podes usar na página inicial.");
+      }
+  };
+
   const handleDraw = async () => {
     if (!group || !id || !currentUser) return;
     if (group.adminId !== currentUser.id) {
@@ -185,7 +192,7 @@ const GroupRoom: React.FC = () => {
           const confirm = window.confirm("Este e-mail ainda não tem conta no Kamba Oculto. Queres enviar um convite por e-mail?");
           if (confirm) {
               const subject = `Convite para ${group?.name} - Kamba Oculto`;
-              const body = `Olá!\n\nEstou a convidar-te para o nosso Amigo Oculto "${group?.name}" no app Kamba Oculto.\n\nEntra aqui: ${window.location.href}\n\nCria a tua conta com este e-mail (${inviteEmail}) para entrares automaticamente!`;
+              const body = `Olá!\n\nEstou a convidar-te para o nosso Amigo Oculto "${group?.name}" no app Kamba Oculto.\n\nCódigo de Acesso: ${group?.id}\nLink Direto: ${window.location.href}\n\nCria a tua conta com este e-mail (${inviteEmail}) para entrares automaticamente!`;
               window.open(`mailto:${inviteEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
           }
       } else {
@@ -344,26 +351,56 @@ const GroupRoom: React.FC = () => {
         {activeTab === 'members' && (
            <div className="p-4 overflow-y-auto h-full">
              
-             {isAdmin && (
-                 <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-6">
-                     <h3 className="font-bold text-[#C62828] mb-2 text-sm uppercase">Adicionar Membro</h3>
-                     <form onSubmit={handleInviteByEmail} className="flex gap-2">
-                         <input 
-                             type="email" 
-                             placeholder="Email do Kamba" 
-                             value={inviteEmail}
-                             onChange={e => setInviteEmail(e.target.value)}
-                             className="flex-1 bg-white border border-gray-300 rounded-lg p-2 text-sm"
-                             required
-                         />
-                         <button type="submit" className="bg-[#C62828] text-white px-4 py-2 rounded-lg font-bold text-sm">
-                             +
-                         </button>
-                     </form>
-                     <p className="text-[10px] text-gray-400 mt-1">Se ele já tiver conta, entra direto. Senão, enviamos convite.</p>
+             {/* PAINEL DE CONVITES REFORMULADO */}
+             <div className="bg-white p-4 rounded-xl border border-gray-200 mb-6 shadow-sm">
+                 <h3 className="font-bold text-[#C62828] mb-3 text-sm uppercase flex items-center gap-2">
+                    📢 Convidar Kambas
+                 </h3>
+                 
+                 {/* 1. Código do Grupo */}
+                 <div className="flex items-center justify-between bg-gray-50 p-3 rounded-lg mb-3 border border-gray-200">
+                     <div>
+                         <p className="text-[10px] text-gray-500 font-bold uppercase">Código do Grupo</p>
+                         <p className="font-mono font-bold text-sm tracking-wider text-gray-800 break-all">{group.id}</p>
+                     </div>
+                     <button 
+                        onClick={copyGroupCode}
+                        className="text-[#D4AF37] font-bold text-xs bg-white border border-[#D4AF37] px-3 py-1 rounded hover:bg-[#D4AF37] hover:text-white transition"
+                     >
+                        Copiar
+                     </button>
                  </div>
-             )}
 
+                 {/* 2. Link de Convite */}
+                 <button 
+                    onClick={copyInviteLink} 
+                    className="w-full mb-3 text-xs font-bold text-[#C62828] border border-[#C62828] py-2 rounded-lg hover:bg-[#C62828] hover:text-white transition flex items-center justify-center gap-2"
+                 >
+                    <span>🔗</span> Copiar Link de Convite
+                 </button>
+
+                 {/* 3. Adicionar por Email (Admin) */}
+                 {isAdmin && (
+                     <div className="border-t border-dashed border-gray-300 pt-3 mt-3">
+                         <p className="text-[10px] text-gray-500 font-bold uppercase mb-2">Adicionar por Email</p>
+                         <form onSubmit={handleInviteByEmail} className="flex gap-2">
+                             <input 
+                                 type="email" 
+                                 placeholder="Email do amigo" 
+                                 value={inviteEmail}
+                                 onChange={e => setInviteEmail(e.target.value)}
+                                 className="flex-1 bg-white border border-gray-300 rounded-lg p-2 text-sm focus:outline-none focus:border-[#C62828]"
+                                 required
+                             />
+                             <button type="submit" className="bg-[#C62828] text-white px-4 py-2 rounded-lg font-bold text-sm">
+                                 +
+                             </button>
+                         </form>
+                     </div>
+                 )}
+             </div>
+
+             {/* Solicitações Pendentes */}
              {isAdmin && pendingMembers.length > 0 && (
                 <div className="mb-6 border-b pb-4">
                     <h3 className="font-bold text-[#D4AF37] mb-2">Solicitações Pendentes ⏳</h3>
@@ -390,11 +427,9 @@ const GroupRoom: React.FC = () => {
                 </div>
              )}
 
-             <div className="flex justify-between items-center mb-4">
+             {/* Lista de Membros */}
+             <div className="mb-2">
                 <h3 className="font-bold text-gray-700">Participantes ({members.length})</h3>
-                <button onClick={copyInviteLink} className="text-xs text-[#C62828] font-bold border border-[#C62828] rounded px-2 py-1 hover:bg-[#C62828] hover:text-white transition">
-                    + Link
-                </button>
              </div>
              
              <div className="space-y-3">

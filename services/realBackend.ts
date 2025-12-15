@@ -2,7 +2,15 @@ import {
   collection, doc, setDoc, getDoc, getDocs, addDoc, updateDoc, 
   onSnapshot, query, where, orderBy, arrayUnion, arrayRemove, limit 
 } from "firebase/firestore";
-import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "firebase/auth";
+import { 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  signOut, 
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updateProfile as updateAuthProfile
+} from "firebase/auth";
 import { auth, db } from "../firebaseConfig";
 import { User, Group, Message, Participant } from "../types";
 import { ANGOLAN_GROUP_NAMES } from "../constants";
@@ -35,6 +43,32 @@ export const RealBackend = {
       await setDoc(userRef, userData);
     }
     return userData;
+  },
+
+  // Novo: Registo com Email e Senha
+  registerWithEmail: async (name: string, email: string, pass: string): Promise<User> => {
+    const result = await createUserWithEmailAndPassword(auth, email, pass);
+    const fbUser = result.user;
+
+    // Atualizar o nome no perfil de autenticação do Firebase
+    await updateAuthProfile(fbUser, { displayName: name });
+
+    // Criar o documento do usuário no Firestore
+    const userData: User = {
+      id: fbUser.uid,
+      name: name,
+      email: email,
+      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${fbUser.uid}`, // Avatar padrão baseado no ID
+    };
+
+    await setDoc(doc(db, "users", fbUser.uid), userData);
+    return userData;
+  },
+
+  // Novo: Login com Email e Senha
+  loginWithEmail: async (email: string, pass: string): Promise<void> => {
+    await signInWithEmailAndPassword(auth, email, pass);
+    // O onAuthStateChange cuidará do resto
   },
 
   logout: async () => {

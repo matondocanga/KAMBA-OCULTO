@@ -1,10 +1,14 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Permite que qualquer utilizador que tenha feito login 
-    // possa ler e escrever dados (criar grupos, enviar mensagens, etc.)
+
+    // 🔐 REGRA GERAL:
+    // Qualquer utilizador que esteja autenticado
+    // pode ler e escrever dados no app
     match /{document=**} {
       allow read, write: if request.auth != null;
     }
+
   }
 }

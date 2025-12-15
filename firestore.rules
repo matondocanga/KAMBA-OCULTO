@@ -1,0 +1,24 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- LISTA DE ACESSO RESTRITO ---
+    // 1. Mantenha toda a estrutura do código.
+    // 2. Apenas altere os emails dentro dos colchetes abaixo.
+    // 3. Certifique-se de que cada email está entre aspas "" e separado por vírgula.
+    
+    function isTeamMember() {
+      return request.auth.token.email in [
+        "seu.email.real@gmail.com",
+        "email.do.socio@gmail.com",
+        "outro.email@empresa.ao"
+      ];
+    }
+
+    // --- NÃO MEXA DAQUI PARA BAIXO ---
+    // Esta regra bloqueia todo o resto do mundo.
+    match /{document=**} {
+      allow read, write: if request.auth != null && isTeamMember();
+    }
+  }
+}

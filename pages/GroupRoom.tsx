@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Group, Message, User, Product } from '../types';
-import { MockBackend } from '../services/mockBackend';
+import { RealBackend } from '../services/realBackend';
 import { COLORS, MACRO_YETU, MOCK_PRODUCTS, GAME_DATA } from '../constants';
 
 const GroupRoom: React.FC = () => {
@@ -12,23 +12,64 @@ const GroupRoom: React.FC = () => {
   const [pendingMembers, setPendingMembers] = useState<User[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
-  const [currentUser] = useState(MockBackend.getCurrentUser());
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<'chat' | 'activities' | 'shop' | 'members' | 'settings'>('chat');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
-  // States specific to functionalities
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const [myMatch, setMyMatch] = useState<User | null>(null);
   const [showRevealModal, setShowRevealModal] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // 1. Auth Check
   useEffect(() => {
-    if (!currentUser || !id) {
-      navigate('/');
-      return;
-    }
-    loadData();
-    const interval = setInterval(loadData, 3000); 
-    return () => clearInterval(interval);
+      const unsub = RealBackend.onAuthStateChange(user => {
+          if (!user) navigate('/');
+          setCurrentUser(user);
+      });
+      return () => unsub();
+  }, []);
+
+  // 2. Real-time Subscriptions (Group, Messages)
+  useEffect(() => {
+    if (!id || !currentUser) return;
+
+    // Listen to Group Details
+    const unsubGroup = RealBackend.subscribeToGroup(id, async (g) => {
+        if (!g) {
+             navigate('/dashboard'); 
+             return;
+        }
+        setGroup(g);
+        
+        // Fetch Members Data (One-time fetch on group update for simplicity, ideally listener too)
+        const mems = await RealBackend.getUsersInGroup(g.members);
+        setMembers(mems);
+        
+        if (g.pendingMembers.length > 0) {
+            const pends = await RealBackend.getUsersInGroup(g.pendingMembers);
+            setPendingMembers(pends);
+        } else {
+            setPendingMembers([]);
+        }
+
+        // Check Match
+        if (g.status === 'drawn' && g.drawResult) {
+            const matchId = g.drawResult[currentUser.id];
+            if (matchId) {
+                const match = await RealBackend.getUserById(matchId);
+                setMyMatch(match || null);
+            }
+        }
+    });
+
+    // Listen to Messages
+    const unsubMsgs = RealBackend.subscribeToMessages(id, (msgs) => {
+        setMessages(msgs);
+    });
+
+    return () => {
+        unsubGroup();
+        unsubMsgs();
+    };
   }, [id, currentUser]);
 
   useEffect(() => {
@@ -39,44 +80,19 @@ const GroupRoom: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const loadData = async () => {
-    if (!id) return;
-    const g = await MockBackend.getGroupById(id);
-    if (g) {
-      setGroup(g);
-      const mems = MockBackend.getUsersInGroup(g.members);
-      setMembers(mems);
-      
-      const pends = MockBackend.getUsersInGroup(g.pendingMembers || []);
-      setPendingMembers(pends);
-
-      const msgs = await MockBackend.getMessages(id);
-      setMessages(msgs);
-
-      if (g.status === 'drawn' && currentUser && g.drawResult) {
-        const matchId = g.drawResult[currentUser.id];
-        if (matchId) {
-           const match = mems.find(m => m.id === matchId);
-           setMyMatch(match || null);
-        }
-      }
-    }
-  };
-
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim() || !id || !currentUser) return;
-    await MockBackend.sendMessage(id, currentUser.id, newMessage, currentUser.name);
+    await RealBackend.sendMessage(id, currentUser.id, currentUser.name, newMessage);
     setNewMessage('');
-    loadData();
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0] && id && currentUser) {
       const file = e.target.files[0];
-      const fakeUrl = URL.createObjectURL(file); 
-      await MockBackend.sendMessage(id, currentUser.id, `📎 Enviou um ficheiro: ${file.name}`, currentUser.name, 'file', fakeUrl);
-      loadData();
+      // Note: Real file upload needs Firebase Storage. For now, sending dummy text.
+      // await uploadToStorage(file)...
+      await RealBackend.sendMessage(id, currentUser.id, currentUser.name, `[Ficheiro: ${file.name}] (Upload real requer bucket)`, 'file');
     }
   };
 
@@ -87,8 +103,7 @@ const GroupRoom: React.FC = () => {
       return;
     }
     try {
-      await MockBackend.runDraw(id);
-      loadData();
+      await RealBackend.runDraw(id);
     } catch (e) {
       alert("Erro ao sortear");
     }
@@ -98,16 +113,14 @@ const GroupRoom: React.FC = () => {
     if (myMatch) {
         setShowRevealModal(true);
     } else {
-        alert("Ainda não tens um par atribuído ou houve um erro.");
+        alert("Ainda não tens um par atribuído.");
     }
   };
 
-  const handleGameStart = (gameName: string, activePlayers: User[]) => {
+  const handleGameStart = (gameName: string) => {
       if (!id || !currentUser) return;
-      // Filter out only first few names to keep message short
-      const names = activePlayers.map(p => p.name).join(' e ');
-      const text = `📢 O membro ${names} estão a jogar ${gameName}! Fiquem atentos aos resultados! 👀`;
-      MockBackend.sendMessage(id, 'admin', text, 'SISTEMA');
+      const text = `📢 Começou um jogo de ${gameName}!`;
+      RealBackend.sendMessage(id, 'admin', 'SISTEMA', text);
   };
 
   if (!group || !currentUser) return <div className="p-8 text-center">Carregando grupo...</div>;
@@ -155,10 +168,8 @@ const GroupRoom: React.FC = () => {
         ))}
       </div>
 
-      {/* Content Area */}
       <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden relative">
         
-        {/* CHAT TAB */}
         {activeTab === 'chat' && (
           <div className="flex flex-col h-full">
             <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#FDFBF7]">
@@ -174,12 +185,7 @@ const GroupRoom: React.FC = () => {
                    <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                      <div className={`max-w-[75%] rounded-2xl px-4 py-2 text-sm ${isMe ? 'bg-[#C62828] text-white rounded-br-none' : 'bg-gray-100 text-gray-800 rounded-bl-none'}`}>
                        {!isMe && <p className="text-[10px] font-bold opacity-70 mb-1">{msg.senderName}</p>}
-                       {msg.type === 'file' ? (
-                         <div className="flex items-center gap-2">
-                            <span className="text-2xl">📄</span>
-                            <span className="underline italic">Ficheiro anexado</span>
-                         </div>
-                       ) : msg.text}
+                       {msg.text}
                      </div>
                    </div>
                  );
@@ -207,25 +213,21 @@ const GroupRoom: React.FC = () => {
           </div>
         )}
 
-        {/* ACTIVITIES TAB - REAL GAMES IMPLEMENTATION */}
         {activeTab === 'activities' && (
           <ActivitiesPanel 
             members={members} 
-            onSendResult={(text) => MockBackend.sendMessage(id!, currentUser.id, text, currentUser.name, 'game_result')} 
+            onSendResult={(text) => RealBackend.sendMessage(id!, currentUser.id, currentUser.name, text, 'game_result')} 
             onStartGame={handleGameStart}
           />
         )}
 
-        {/* SHOP TAB */}
         {activeTab === 'shop' && (
           <ShopPanel members={members} />
         )}
 
-        {/* MEMBERS TAB */}
         {activeTab === 'members' && (
            <div className="p-4 overflow-y-auto h-full">
              
-             {/* Pending Requests Section (Admin Only) */}
              {isAdmin && pendingMembers.length > 0 && (
                 <div className="mb-6 border-b pb-4">
                     <h3 className="font-bold text-[#D4AF37] mb-2">Solicitações Pendentes ⏳</h3>
@@ -238,11 +240,11 @@ const GroupRoom: React.FC = () => {
                                 </div>
                                 <div className="flex gap-2">
                                     <button 
-                                      onClick={async () => { await MockBackend.approveMember(group.id, pm.id); loadData(); }}
+                                      onClick={() => RealBackend.approveMember(group.id, pm.id)}
                                       className="bg-green-600 text-white text-xs px-2 py-1 rounded"
                                     >Aceitar</button>
                                     <button 
-                                      onClick={async () => { await MockBackend.rejectMember(group.id, pm.id); loadData(); }}
+                                      onClick={() => RealBackend.rejectMember(group.id, pm.id)}
                                       className="bg-red-600 text-white text-xs px-2 py-1 rounded"
                                     >Rejeitar</button>
                                 </div>
@@ -254,16 +256,14 @@ const GroupRoom: React.FC = () => {
 
              <h3 className="font-bold text-gray-700 mb-4">Participantes ({members.length})</h3>
              
-             {/* Add Bot Button for Testing */}
-             <button 
-                onClick={async () => {
-                    await MockBackend.addBotMember(group.id);
-                    loadData();
-                }}
-                className="w-full bg-gray-100 text-gray-600 text-sm font-bold py-2 rounded-lg mb-4 border border-dashed border-gray-300 hover:bg-gray-200"
-             >
-                🤖 Adicionar Bot (Teste)
-             </button>
+             {isAdmin && (
+                <button 
+                    onClick={() => RealBackend.addBotMember(group.id)}
+                    className="w-full bg-gray-100 text-gray-600 text-sm font-bold py-2 rounded-lg mb-4 border border-dashed border-gray-300 hover:bg-gray-200"
+                >
+                    🤖 Adicionar Bot (Teste)
+                </button>
+             )}
 
              <div className="space-y-3">
                {members.map(m => (
@@ -276,7 +276,7 @@ const GroupRoom: React.FC = () => {
                  </div>
                ))}
                <div className="mt-6 p-4 border border-dashed border-gray-300 rounded-lg text-center">
-                 <p className="text-xs text-gray-500 mb-2">ID do Grupo (partilha com os kambas):</p>
+                 <p className="text-xs text-gray-500 mb-2">ID do Grupo:</p>
                  <code className="block bg-gray-100 p-2 rounded font-mono text-sm break-all select-all">
                    {group.id}
                  </code>
@@ -285,7 +285,6 @@ const GroupRoom: React.FC = () => {
            </div>
         )}
 
-        {/* SETTINGS TAB */}
         {activeTab === 'settings' && (
           <div className="p-4 overflow-y-auto h-full">
              <h3 className="font-bold text-gray-700 mb-4">Configurações do Grupo</h3>
@@ -302,10 +301,7 @@ const GroupRoom: React.FC = () => {
                         <input 
                             type="checkbox" 
                             checked={group.isPublic} 
-                            onChange={async (e) => {
-                                await MockBackend.updateGroupSettings(group.id, { isPublic: e.target.checked });
-                                loadData();
-                            }}
+                            onChange={(e) => RealBackend.updateGroupSettings(group.id, { isPublic: e.target.checked })}
                             className="w-5 h-5 text-[#C62828]"
                         />
                     </div>
@@ -314,21 +310,14 @@ const GroupRoom: React.FC = () => {
                         <input 
                             type="checkbox" 
                             checked={group.requiresApproval} 
-                            onChange={async (e) => {
-                                await MockBackend.updateGroupSettings(group.id, { requiresApproval: e.target.checked });
-                                loadData();
-                            }}
+                            onChange={(e) => RealBackend.updateGroupSettings(group.id, { requiresApproval: e.target.checked })}
                             className="w-5 h-5 text-[#C62828]"
                         />
                     </div>
-                    
-                    <button className="w-full bg-red-100 text-red-800 py-3 rounded-lg text-sm font-bold mt-4">
-                        Eliminar Grupo
-                    </button>
                    </>
                ) : (
                    <div className="p-3 bg-yellow-50 text-yellow-800 text-xs rounded">
-                       Apenas o Admin ({members.find(m => m.id === group.adminId)?.name}) pode alterar as configurações.
+                       Apenas o Admin pode alterar as configurações.
                    </div>
                )}
              </div>
@@ -336,7 +325,6 @@ const GroupRoom: React.FC = () => {
         )}
       </div>
 
-      {/* REVEAL MATCH MODAL */}
       {showRevealModal && myMatch && (
          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#C62828] bg-opacity-95 p-6 animate-fade-in">
              <div className="bg-white rounded-3xl p-8 w-full max-w-sm text-center shadow-2xl border-4 border-[#D4AF37] relative">
@@ -359,12 +347,12 @@ const GroupRoom: React.FC = () => {
   );
 };
 
-// --- Activities & Games Components ---
+// --- Activities & Games Components (Same UI, Logic separated) ---
 
 const ActivitiesPanel: React.FC<{ 
     members: User[], 
     onSendResult: (text: string) => void, 
-    onStartGame: (game: string, players: User[]) => void
+    onStartGame: (game: string) => void
 }> = ({ members, onSendResult, onStartGame }) => {
   const [activeGame, setActiveGame] = useState<string | null>(null);
 
@@ -373,7 +361,7 @@ const ActivitiesPanel: React.FC<{
   }
 
   if (activeGame === 'Quiz') {
-      return <QuizGame members={members} onFinish={(res) => { onSendResult(res); setActiveGame(null); }} onCancel={() => setActiveGame(null)} onStart={() => onStartGame('Quiz Angola', members)} />;
+      return <QuizGame members={members} onFinish={(res) => { onSendResult(res); setActiveGame(null); }} onCancel={() => setActiveGame(null)} onStart={() => onStartGame('Quiz Angola')} />;
   }
 
   if (activeGame === 'Icebreaker') {
@@ -385,7 +373,7 @@ const ActivitiesPanel: React.FC<{
         titleColor="text-blue-800"
         onFinish={(res) => { onSendResult(res); setActiveGame(null); }} 
         onCancel={() => setActiveGame(null)}
-        onStart={() => onStartGame('Quebra Gelo', members)}
+        onStart={() => onStartGame('Quebra Gelo')}
       />;
   }
 
@@ -398,12 +386,11 @@ const ActivitiesPanel: React.FC<{
         titleColor="text-purple-800"
         onFinish={(res) => { onSendResult(res); setActiveGame(null); }} 
         onCancel={() => setActiveGame(null)}
-        onStart={() => onStartGame('Verdade ou Desafio', members)}
+        onStart={() => onStartGame('Verdade ou Desafio')}
       />;
   }
 
   if (activeGame === 'Guess') {
-      // Generate Guess Who cards based on members
       const guessData = members.map(m => `Quem é este kamba? Começa com a letra "${m.name.charAt(0)}"...`);
       return <TurnBasedCardGame 
         title="Adivinha o Kamba 🕵️" 
@@ -413,7 +400,7 @@ const ActivitiesPanel: React.FC<{
         titleColor="text-yellow-800"
         onFinish={(res) => { onSendResult(res); setActiveGame(null); }} 
         onCancel={() => setActiveGame(null)}
-        onStart={() => onStartGame('Adivinha o Kamba', members)}
+        onStart={() => onStartGame('Adivinha o Kamba')}
       />;
   }
 
@@ -437,9 +424,8 @@ const TurnBasedCardGame = ({ members, title, data, bgColor, titleColor, onFinish
     const [currentCard, setCurrentCard] = useState('');
     const [playerAnswer, setPlayerAnswer] = useState('');
 
-    const maxRounds = Math.min(members.length * 2, 10); // Limit rounds
+    const maxRounds = Math.min(members.length * 2, 10);
 
-    // Init scores
     useEffect(() => {
         const s: any = {};
         members.forEach((m: User) => s[m.id] = 0);

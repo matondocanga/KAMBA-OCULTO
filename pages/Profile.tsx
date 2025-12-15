@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MockBackend } from '../services/mockBackend';
+import { RealBackend } from '../services/realBackend';
+import { User } from '../types';
 
 const Profile: React.FC = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState(MockBackend.getCurrentUser());
+  const [user, setUser] = useState<User | null>(null);
   const [prefs, setPrefs] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
@@ -12,10 +13,16 @@ const Profile: React.FC = () => {
   const [notifs, setNotifs] = useState(true);
 
   useEffect(() => {
-    if (!user) {
-      navigate('/');
-    }
-  }, [user, navigate]);
+    const unsub = RealBackend.onAuthStateChange(u => {
+        if (!u) navigate('/');
+        else {
+            setUser(u);
+            // Load existing profile data (mocked fields for now, or assume contained in user obj)
+            // In a full implementation, these would come from the User object in Firestore
+        }
+    });
+    return () => unsub();
+  }, [navigate]);
 
   if (!user) {
     return null;
@@ -23,7 +30,7 @@ const Profile: React.FC = () => {
 
   const handleSave = async () => {
     try {
-        await MockBackend.updateProfile(user.id, {
+        await RealBackend.updateProfile(user.id, {
             giftPreferences: prefs,
             clothingSize: clothing,
             phone,
